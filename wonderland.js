@@ -15,129 +15,153 @@ window.requestAnimationFrame = (function(){
 })();
 
 var Wonderland = Wonderland || {
-  canvas$: $('#wonderlandCanvas'),
-  canvasContext: $('#wonderlandCanvas')[0].getContext('2d'),
-
-  video$: $('#wonderlandVideo'),
-
+  // audio components
   audioContext: new AudioContext(),
   audioSource: null,
+  audioGain: null,
   analyser: null,
   compressor: null,
 
-  init: function(stream, audioBuffer) {
-    this.canvas$[0].width = this.canvas$.width();
-    this.canvas$[0].height = this.canvas$.height();
+  // webgl components
+  scene: null,
+  camera: null,
+  renderer: null,
+  cubes: [],
 
-    // audio
+  init: function(stream, audioBuffer) {
+    this.initAudio(stream, audioBuffer);
+    this.initScene();
+    this.renderLoop();
+  },
+
+  initAudio: function(stream, audioBuffer) {
+    // audio source
     if (typeof audioBuffer !== 'undefined') {
       this.audioSource = this.audioContext.createBufferSource();
       this.audioSource.buffer = audioBuffer;
-      this.audioSource.playbackRate.value = 1.2;
-      this.audioSource.start();
+      this.audioSource.playbackRate.value = 1.4;
+      this.audioSource.start(); // todo: remove
     } else {
       this.audioSource = this.audioContext.createMediaStreamSource(stream);
     }
 
-    // output piping
-    this.analyser = this.audioContext.createAnalyser();
+    // audio pipes
     this.compressor = this.audioContext.createDynamicsCompressor();
+
+    this.filter = this.audioContext.createBiquadFilter();
+    this.filter.type = 'lowshelf';
+    this.filter.frequency.value = 500;
+
+    this.audioGain = this.audioContext.createGain();
+
+    this.analyser = this.audioContext.createAnalyser();
+    this.analyser.fftSize = 32;
+
     this.audioSource.connect(this.compressor)
-    this.compressor.connect(this.analyser);
+    this.compressor.connect(this.filter)
+    this.filter.connect(this.audioGain)
+    this.audioGain.connect(this.analyser);
     this.analyser.connect(this.audioContext.destination);
-
-    // video
-    this.video$.attr('src', window.URL.createObjectURL(stream));
-
-    this.drawLoop();
   },
 
-  drawLoop: function() {
-    this.canvasContext.clearRect(0, 0, this.canvas$.width(), this.canvas$.height());
-    this.canvasContext.drawImage(this.video$[0], 0, 0, this.canvas$.width(), this.canvas$.height());
-    this.twiddleVideo();
-    this.drawFrequencyGraph();
-    requestAnimationFrame(this.drawLoop.bind(this));
+  initScene: function() {
+    // scene
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    this.camera.position.z = 5;
+    this.renderer = new THREE.WebGLRenderer();
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(this.renderer.domElement);
+
+    // cubes
+    cubeXs = [
+      -2, -1, 1, 2
+    ];
+    cubeYs = [
+      -1.25, -1.25, -1.25, -1.25,
+      -0.25, -0.25, -0.25, -0.25,
+       0.55,  0.55,  0.55,  0.55,
+       1.25,  1.25,  1.25,  1.25,
+    ];
+    _(this.analyser.frequencyBinCount).times(function(cubeIndex) {
+      geometry = new THREE.BoxGeometry(1, 1, 1);
+      material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+      cube = new THREE.Mesh(geometry, material);
+      //cube.rotation.y = Math.PI * 45 / 180;
+      cube.position.x = cubeXs[cubeIndex % 4];
+      cube.position.y = cubeYs[cubeIndex];
+      cube.scale.set(0.2, 0.2, 0.2);
+      //cube.position.y = 1/(cubeIndex + 1);
+      this.scene.add(cube);
+      this.cubes[cubeIndex] = cube;
+    }.bind(this));
   },
 
-  drawFrequencyGraph: function() {
+  renderLoop: function() {
+    requestAnimationFrame(this.renderLoop.bind(this));
+
     freqDomain = new Uint8Array(this.analyser.frequencyBinCount);
     this.analyser.getByteFrequencyData(freqDomain);
-    for (i = 0; i < this.analyser.frequencyBinCount; i++) {
-      value = freqDomain[i];
-      percent = value / 256;
-      height = this.canvas$.height() * percent;
-      offset = this.canvas$.height() - height - 1;
-      barWidth = this.canvas$.width()/this.analyser.frequencyBinCount;
-      hue = i/this.analyser.frequencyBinCount * 360;
-      this.canvasContext.fillStyle = 'hsl(' + hue + ', 100%, 80%)';
-      this.canvasContext.fillRect(i*barWidth, offset, barWidth, height);
+
+    this.audioGain.gain.value = freqDomain[8]/256 + 0.65;
+    if (this.audioContext.currentTime > 16) {
+      this.audioSource.playbackRate.value = 1.1;
     }
-  },
 
-  twiddleVideo: function() {
-    imageData = this.canvasContext.getImageData(0, 0, this.canvas$.width(), this.canvas$.height());
-    data = imageData.data;
-    freqDomain = new Uint8Array(this.analyser.frequencyBinCount);
-    this.analyser.getByteFrequencyData(freqDomain);
-    columnSize = Math.floor(imageData.width / 8);
-    rowSize = Math.floor(imageData.height / 8);
-    /*
-    for (column = 0; column < imageData.width; column += columnSize) {
-      for (row = 0; row < imageData.height; row += rowSize) {
-        progress = column/imageData.width;
-        hue = progress * 360;
-        saturation = 40 + 100*freqDomain[(row + column) % this.analyser.frequencyBinCount]/256;
-        this.canvasContext.fillStyle = 'hsl(' + hue + ', ' + saturation + '%, 80%)';
-        this.canvasContext.fillRect(column+2, row+2, columnSize-2, rowSize-2);
+    _(this.cubes.length).times(function(cubeIndex) {
+      cube = this.cubes[(cubeIndex + 8) % this.cubes.length];
+      normalizedFreq = freqDomain[cubeIndex] / 256;
+      cube.material.color.r = Math.max(0.7 + normalizedFreq, 1);
+      cube.material.color.g = normalizedFreq - 0.5;
+      cube.material.color.b = 0.2 + normalizedFreq;
+      cube.scale.z = (Math.random() < 0.5 ? 1 : -1) * normalizedFreq;
+      cube.scale.y = (Math.random() < 0.5 ? 0.5 : -0.5) * normalizedFreq;
+      if (normalizedFreq > 0.75) {
+        cube.scale.x = normalizedFreq - 0.3;
+        cube.scale.y = normalizedFreq - 0.3;
+        if (Math.random() > 0.4) {
+          cube.rotation.z += normalizedFreq/16;
+        } else {
+          cube.rotation.y += normalizedFreq/16;
+        }
+        cube.rotation.x = normalizedFreq * 2;
+      } else {
+        cube.scale.z = normalizedFreq;
+        cube.rotation.x += normalizedFreq/4;
+        cube.rotation.z = normalizedFreq*2;
+        cube.rotation.y = -normalizedFreq;
       }
-    }
-    */
-    for (i = 0; i < data.length; i += 4) {
-      r = i; g = i + 1; b = i + 2; a = i + 3;
-      data[r] = Math.min(255, data[r] * 2) * freqDomain[r % this.analyser.frequencyBinCount];
-      data[g] = data[g] + freqDomain[2*g % this.analyser.frequencyBinCount];
-      data[b] = data[b] + freqDomain[8*b % this.analyser.frequencyBinCount];
-      data[a] = 90 * freqDomain[r*g*b % this.analyser.frequencyBinCount];
-    }
-    this.canvasContext.putImageData(imageData, 0, 0);
-  },
+    }.bind(this));
 
-  invertVideo: function() {
-    imageData = this.canvasContext.getImageData(0, 0, this.canvas$.width(), this.canvas$.height());
-    data = imageData.data;
-    for (i = 0; i < data.length; i += 4) {
-      r = i; g = i + 1; b = i + 2; a = i + 3;
-      data[r] = Math.min(255, data[r] * 2) * freqDomain[r];
-      data[g] = data[g] * freqDomain[g];
-      data[b] = data[b] * freqDomain[b];
-      data[a] = 150;
-    }
-    this.canvasContext.putImageData(imageData, 0, 0);
-  }
+    this.renderer.render(this.scene, this.camera);
+  },
 };
 
-url = 'daft-computerized.mp3'
-request = new XMLHttpRequest();
-request.open('GET', url, true);
-request.responseType = 'arraybuffer';
-request.onreadystatechange = function() {
-  if (request.readyState === 4 && request.status === 200) {
-    data = request.response;
-    Wonderland.audioContext.decodeAudioData(data, function(buffer) {
-      setupStream(buffer);
-    }, function(error) {
-      console.error('Could not decode audio data from', url, '-', error.err);
-    });
+if (true) {
+  url = 'jackson-biggie-i-want-you-back.mp3';
+  request = new XMLHttpRequest();
+  request.open('GET', url, true);
+  request.responseType = 'arraybuffer';
+  request.onreadystatechange = function() {
+    if (request.readyState === 4 && request.status === 200) {
+      data = request.response;
+      Wonderland.audioContext.decodeAudioData(data, function(buffer) {
+        setupStream(buffer);
+      }, function(error) {
+        console.error('Could not decode audio data from', url, '-', error.err);
+      });
+    }
   }
+  request.send();
+} else {
+  setupStream();
 }
-request.send();
 
 function setupStream(buffer) {
   if (!!navigator.getUserMedia) {
     navigator.getUserMedia({
       audio: true,
-      video: true
+      //video: true
     }, function(stream) {
       Wonderland.init(stream, buffer);
     }, function(error) {
