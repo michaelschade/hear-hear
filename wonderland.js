@@ -71,7 +71,8 @@ var Wonderland = Wonderland || {
     this.camera.position.z = 5;
     this.renderer = new THREE.WebGLRenderer();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(this.renderer.domElement);
+    $('#loading').hide();
+    $('body').append(this.renderer.domElement);
 
     // cubes
     // TODO: make this not terrible
