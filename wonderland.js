@@ -119,11 +119,13 @@ var Wonderland = Wonderland || {
       cube.scale.z = (Math.random() < 0.5 ? 1 : -1) * normalizedFreq;
       cube.scale.y = (Math.random() < 0.5 ? 0.5 : -0.5) * normalizedFreq;
       if (normalizedFreq > 0.75) {
-        cube.scale.x = normalizedFreq - 0.3;
-        cube.scale.y = normalizedFreq - 0.3;
+        cube.scale.x = normalizedFreq - 0.6;
+        cube.scale.y = normalizedFreq - 0.6;
         if (Math.random() > 0.4) {
           cube.rotation.z += normalizedFreq/16;
+          cube.rotation.x += normalizedFreq/8;
         } else {
+          cube.scale.x *= normalizedFreq/8;
           cube.rotation.y += normalizedFreq/16;
         }
         cube.rotation.x = normalizedFreq * 2;
