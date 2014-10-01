@@ -28,21 +28,21 @@ var Wonderland = Wonderland || {
   renderer: null,
   cubes: [],
 
-  init: function(stream, audioBuffer) {
-    this.initAudio(stream, audioBuffer);
+  init: function(type, source) {
+    this.initAudio(type, source);
     this.initScene();
     this.renderLoop();
   },
 
-  initAudio: function(stream, audioBuffer) {
+  initAudio: function(type, source) {
     // audio source
-    if (typeof audioBuffer !== 'undefined') {
+    if (type == 'buffer') {
       this.audioSource = this.audioContext.createBufferSource();
-      this.audioSource.buffer = audioBuffer;
+      this.audioSource.buffer = source;
       this.audioSource.playbackRate.value = 1.4;
-      this.audioSource.start(); // todo: remove
-    } else {
-      this.audioSource = this.audioContext.createMediaStreamSource(stream);
+      this.audioSource.start();
+    } else if (type == 'stream') {
+      this.audioSource = this.audioContext.createMediaStreamSource(source);
     }
 
     // audio pipes
@@ -74,6 +74,7 @@ var Wonderland = Wonderland || {
     document.body.appendChild(this.renderer.domElement);
 
     // cubes
+    // TODO: make this not terrible
     cubeXs = [
       -2, -1, 1, 2
     ];
@@ -146,7 +147,7 @@ if (true) {
     if (request.readyState === 4 && request.status === 200) {
       data = request.response;
       Wonderland.audioContext.decodeAudioData(data, function(buffer) {
-        setupStream(buffer);
+        Wonderland.init('buffer', buffer);
       }, function(error) {
         console.error('Could not decode audio data from', url, '-', error.err);
       });
@@ -154,16 +155,12 @@ if (true) {
   }
   request.send();
 } else {
-  setupStream();
-}
-
-function setupStream(buffer) {
   if (!!navigator.getUserMedia) {
     navigator.getUserMedia({
       audio: true,
       //video: true
     }, function(stream) {
-      Wonderland.init(stream, buffer);
+      Wonderland.init('stream', stream);
     }, function(error) {
       console.error('Could not retrieve stream from getUserMedia()');
     });
